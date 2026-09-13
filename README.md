@@ -2,22 +2,12 @@
 
 **Is this MCP server alive, maintained, and safe to use?**
 
+![Scepter demo](assets/demo.gif)
+
 More than half of published MCP servers are already dead, and only a fraction of the tens of thousands out there are actively maintained. Developers wire them into their AI agents without knowing which ones are abandoned, unmaintained, or risky. Scepter answers that question in one command.
 
 ```bash
 npx scepter-mcp check owner/repo
-```
-
-```
-  owner/weather-mcp (github)
-  A Model Context Protocol server for weather data
-
-  ✓ Activity     active (8 days ago)
-  ✓ Maintained   license MIT, has releases, linked source
-  ! Provenance   142 stars, 6 open issues
-  ✓ MCP fit      declares itself an MCP server
-
-  SCORE 88/100 · HEALTHY
 ```
 
 ## Install
