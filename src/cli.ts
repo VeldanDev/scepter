@@ -8,7 +8,7 @@ import { runBadge } from "./badge.js";
 import { readSessions } from "./session.js";
 import type { CheckResult, SourceKind } from "./types.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 const HELP = `
 scepter ${VERSION}  -  is this MCP server alive, maintained, and safe to use?
