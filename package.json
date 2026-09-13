@@ -1,6 +1,6 @@
 {
   "name": "scepter-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Check whether an MCP server is alive, maintained, and safe to use.",
   "type": "module",
   "bin": {
