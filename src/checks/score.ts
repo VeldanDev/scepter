@@ -144,7 +144,7 @@ export function scoreSource(target: string, source: SourceInfo): CheckResult {
       status: "bad",
       detail: `${adv.critical} critical advisor${adv.critical === 1 ? "y" : "ies"} (${adv.total} total)`,
     });
-    reasons.push(`${adv.critical} CRITICAL security advisory${adv.critical === 1 ? "" : "ies"} found.`);
+    reasons.push(`${adv.critical} CRITICAL security advisor${adv.critical === 1 ? "y" : "ies"} found.`);
   } else if (adv.high > 0) {
     score += 5;
     signals.push({
@@ -153,7 +153,7 @@ export function scoreSource(target: string, source: SourceInfo): CheckResult {
       status: "bad",
       detail: `${adv.high} high-severity advisor${adv.high === 1 ? "y" : "ies"} (${adv.total} total)`,
     });
-    reasons.push(`${adv.high} high-severity security advisory${adv.high === 1 ? "" : "ies"} found.`);
+    reasons.push(`${adv.high} high-severity security advisor${adv.high === 1 ? "y" : "ies"} found.`);
   } else {
     score += 12;
     signals.push({
@@ -162,7 +162,7 @@ export function scoreSource(target: string, source: SourceInfo): CheckResult {
       status: "warn",
       detail: `${adv.total} advisor${adv.total === 1 ? "y" : "ies"} (low/medium severity)`,
     });
-    reasons.push(`${adv.total} lower-severity security advisory${adv.total === 1 ? "" : "ies"} on record.`);
+    reasons.push(`${adv.total} lower-severity security advisor${adv.total === 1 ? "y" : "ies"} on record.`);
   }
 
   score = Math.max(0, Math.min(100, Math.round(score)));
