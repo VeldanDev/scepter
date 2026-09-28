@@ -2,6 +2,9 @@
 
 **Is this MCP server alive, maintained, and safe to use?**
 
+[![MCP health](https://img.shields.io/badge/MCP_health-93%2F100_healthy-brightgreen)](https://www.npmjs.com/package/scepter-mcp)
+*(Scepter checking itself: `scepter badge scepter-mcp --npm`)*
+
 ![Scepter demo](assets/demo.gif)
 
 More than half of published MCP servers are already dead, and only a fraction of the tens of thousands out there are actively maintained. Developers wire them into their AI agents without knowing which ones are abandoned, unmaintained, or risky. Scepter answers that question in one command.
