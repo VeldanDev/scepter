@@ -1,5 +1,6 @@
 import type { SourceInfo } from "../types.js";
 import { detectMcp } from "../mcp-detect.js";
+import { advisoriesForNpm } from "./advisories.js";
 
 const REGISTRY = "https://registry.npmjs.org";
 
@@ -52,6 +53,9 @@ export async function inspectNpm(pkg: string): Promise<SourceInfo> {
   const repoUrl =
     typeof data.repository === "string" ? data.repository : data.repository?.url;
 
+  const advisories = await advisoriesForNpm(data.name ?? pkg);
+  if (advisories === null) warnings.push("could not check security advisories");
+
   return {
     kind: "npm",
     name: data.name ?? pkg,
@@ -67,6 +71,7 @@ export async function inspectNpm(pkg: string): Promise<SourceInfo> {
     hasReleases: data.versions ? Object.keys(data.versions).length > 1 : null,
     hasRepoLink: Boolean(repoUrl || data.homepage),
     looksLikeMcp,
+    advisories,
     warnings,
   };
 }
@@ -93,6 +98,7 @@ function notFound(pkg: string): SourceInfo {
     hasReleases: null,
     hasRepoLink: false,
     looksLikeMcp: pkg.toLowerCase().includes("mcp"),
+    advisories: null,
     warnings: [],
   };
 }

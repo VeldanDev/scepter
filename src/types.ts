@@ -25,6 +25,8 @@ export interface SourceInfo {
   hasRepoLink: boolean;
   /** Heuristic: does it look like an MCP server at all? */
   looksLikeMcp: boolean;
+  /** Known security advisories (GitHub advisory database). Null means "couldn't check", never "zero found". */
+  advisories: { total: number; critical: number; high: number } | null;
   /** Non-fatal problems while gathering (rate limit, missing token, etc.). */
   warnings: string[];
 }
