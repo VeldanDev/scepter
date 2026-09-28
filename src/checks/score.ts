@@ -140,7 +140,7 @@ function toVerdict(score: number, source: SourceInfo): Verdict {
   return "risky";
 }
 
-function fmtAgo(months: number): string {
+export function fmtAgo(months: number): string {
   if (months < 1) {
     const days = Math.max(1, Math.round(months * 30));
     return `${days} day${days === 1 ? "" : "s"} ago`;
