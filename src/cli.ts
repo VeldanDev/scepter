@@ -10,7 +10,7 @@ import { readSessions } from "./session.js";
 import { recordAndGetPrevious, readHistory } from "./history.js";
 import type { CheckResult, SourceKind } from "./types.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 const HELP = `
 scepter ${VERSION}  -  is this MCP server alive, maintained, and safe to use?
