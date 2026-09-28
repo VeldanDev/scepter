@@ -5,9 +5,11 @@ const MONTH = 1000 * 60 * 60 * 24 * 30;
 /**
  * Turn gathered facts into signals, a 0-100 score, and a verdict.
  *
- * v1 answers the headline question honestly: is this MCP server dead or alive,
- * and is it worth trusting? It reads registry/repo metadata only. Deep runtime
- * checks (live handshake, permission introspection, phone-home) are roadmap
+ * Weights: Activity 35, Maintained 20, Provenance 15, MCP fit 10, Security 20.
+ * Security reads registry/repo metadata plus GitHub's advisory database --
+ * "safe to use" now means checking for a known vulnerability directly, not
+ * just inferring it from how active a project looks. Deep runtime checks
+ * (live handshake, permission introspection, phone-home) are still roadmap
  * (v2), and the report says so rather than pretending.
  */
 export function scoreSource(target: string, source: SourceInfo): CheckResult {
@@ -33,44 +35,44 @@ export function scoreSource(target: string, source: SourceInfo): CheckResult {
 
   let score = 0;
 
-  // --- Liveness: last activity (weight 40) ---
+  // --- Liveness: last activity (weight 35) ---
   const now = Date.now();
   const age = source.lastActivity ? now - source.lastActivity.getTime() : null;
   if (age === null) {
     signals.push({ key: "alive", label: "Activity", status: "warn", detail: "no date available" });
-    score += 15;
+    score += 12;
   } else {
     const months = age / MONTH;
     if (months <= 3) {
       signals.push({ key: "alive", label: "Activity", status: "ok", detail: `active (${fmtAgo(months)})` });
-      score += 40;
+      score += 35;
     } else if (months <= 12) {
       signals.push({ key: "alive", label: "Activity", status: "warn", detail: `quiet (${fmtAgo(months)})` });
-      score += 24;
+      score += 20;
       reasons.push(`No updates for ${fmtAgo(months)}.`);
     } else {
       signals.push({ key: "alive", label: "Activity", status: "bad", detail: `stale (${fmtAgo(months)})` });
-      score += 4;
+      score += 3;
       reasons.push(`Looks abandoned: last activity ${fmtAgo(months)}.`);
     }
   }
 
-  // --- Maintenance (weight 25) ---
+  // --- Maintenance (weight 20) ---
   if (source.archived) {
     signals.push({ key: "archived", label: "Maintained", status: "bad", detail: "repository is archived" });
     reasons.push("Repository is archived by its author.");
   } else {
     let m = 0;
-    if (source.license) m += 10;
+    if (source.license) m += 8;
     else reasons.push("No license declared.");
-    if (source.hasReleases) m += 8;
-    if (source.hasRepoLink) m += 7;
+    if (source.hasReleases) m += 6;
+    if (source.hasRepoLink) m += 6;
     else reasons.push("No link back to source code.");
     score += m;
     signals.push({
       key: "maintained",
       label: "Maintained",
-      status: m >= 17 ? "ok" : m >= 8 ? "warn" : "bad",
+      status: m >= 16 ? "ok" : m >= 8 ? "warn" : "bad",
       detail: [
         source.license ? `license ${source.license}` : "no license",
         source.hasReleases ? "has releases" : "no releases",
@@ -79,43 +81,43 @@ export function scoreSource(target: string, source: SourceInfo): CheckResult {
     });
   }
 
-  // --- Trust / provenance (weight 20) ---
+  // --- Trust / provenance (weight 15) ---
   let t = 0;
   const trustBits: string[] = [];
   if (source.description) {
-    t += 6;
+    t += 4;
     trustBits.push("described");
   } else {
     reasons.push("No description.");
   }
   if (source.stars !== null) {
-    if (source.stars >= 50) t += 8;
-    else if (source.stars >= 5) t += 5;
+    if (source.stars >= 50) t += 6;
+    else if (source.stars >= 5) t += 4;
     else t += 1;
     trustBits.push(`${source.stars} stars`);
   } else if (source.maintainers !== null) {
-    if (source.maintainers >= 2) t += 8;
-    else t += 3;
+    if (source.maintainers >= 2) t += 6;
+    else t += 2;
     trustBits.push(`${source.maintainers} maintainer${source.maintainers === 1 ? "" : "s"}`);
   }
   if (source.openIssues !== null) {
     trustBits.push(`${source.openIssues} open issues`);
     if (source.openIssues > 200) reasons.push(`${source.openIssues} open issues piling up.`);
-    else t += 6;
+    else t += 5;
   } else {
-    t += 3;
+    t += 2;
   }
-  score += Math.min(t, 20);
+  score += Math.min(t, 15);
   signals.push({
     key: "trust",
     label: "Provenance",
-    status: t >= 14 ? "ok" : t >= 7 ? "warn" : "bad",
+    status: t >= 11 ? "ok" : t >= 6 ? "warn" : "bad",
     detail: trustBits.length ? trustBits.join(", ") : "little public signal",
   });
 
-  // --- MCP fit (weight 15) ---
+  // --- MCP fit (weight 10) ---
   if (source.looksLikeMcp) {
-    score += 15;
+    score += 10;
     signals.push({ key: "mcp", label: "MCP fit", status: "ok", detail: "declares itself an MCP server" });
   } else {
     signals.push({
@@ -127,6 +129,42 @@ export function scoreSource(target: string, source: SourceInfo): CheckResult {
     reasons.push("Could not confirm this is an MCP server from its metadata.");
   }
 
+  // --- Security: known advisories (weight 20) ---
+  const adv = source.advisories;
+  if (adv === null) {
+    score += 10; // couldn't check -- neutral, not a penalty for something we don't know
+    signals.push({ key: "security", label: "Security", status: "warn", detail: "could not check advisories" });
+  } else if (adv.total === 0) {
+    score += 20;
+    signals.push({ key: "security", label: "Security", status: "ok", detail: "no known advisories" });
+  } else if (adv.critical > 0) {
+    signals.push({
+      key: "security",
+      label: "Security",
+      status: "bad",
+      detail: `${adv.critical} critical advisor${adv.critical === 1 ? "y" : "ies"} (${adv.total} total)`,
+    });
+    reasons.push(`${adv.critical} CRITICAL security advisory${adv.critical === 1 ? "" : "ies"} found.`);
+  } else if (adv.high > 0) {
+    score += 5;
+    signals.push({
+      key: "security",
+      label: "Security",
+      status: "bad",
+      detail: `${adv.high} high-severity advisor${adv.high === 1 ? "y" : "ies"} (${adv.total} total)`,
+    });
+    reasons.push(`${adv.high} high-severity security advisory${adv.high === 1 ? "" : "ies"} found.`);
+  } else {
+    score += 12;
+    signals.push({
+      key: "security",
+      label: "Security",
+      status: "warn",
+      detail: `${adv.total} advisor${adv.total === 1 ? "y" : "ies"} (low/medium severity)`,
+    });
+    reasons.push(`${adv.total} lower-severity security advisory${adv.total === 1 ? "" : "ies"} on record.`);
+  }
+
   score = Math.max(0, Math.min(100, Math.round(score)));
   const verdict = toVerdict(score, source);
 
@@ -135,6 +173,7 @@ export function scoreSource(target: string, source: SourceInfo): CheckResult {
 
 function toVerdict(score: number, source: SourceInfo): Verdict {
   if (source.archived) return "risky";
+  if (source.advisories && source.advisories.critical > 0) return "risky"; // a critical CVE overrides an otherwise-good score
   if (score >= 75) return "healthy";
   if (score >= 45) return "caution";
   return "risky";

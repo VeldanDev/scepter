@@ -1,5 +1,6 @@
 import type { SourceInfo } from "../types.js";
 import { detectMcp } from "../mcp-detect.js";
+import { advisoriesForGithub } from "./advisories.js";
 
 const API = "https://api.github.com";
 
@@ -68,6 +69,11 @@ export async function inspectGithub(id: string): Promise<SourceInfo> {
   const desc = repo.description ?? null;
   const looksLikeMcp = detectMcp(id, desc, topics);
 
+  const advisories = await advisoriesForGithub(id, headers);
+  // Unlike npm, a failed advisory lookup here is common and not worth a
+  // warning: GitHub's security-advisories endpoint 404s for most public
+  // repos that simply haven't published one, not just on real errors.
+
   return {
     kind: "github",
     name: repo.full_name ?? id,
@@ -85,6 +91,7 @@ export async function inspectGithub(id: string): Promise<SourceInfo> {
     hasReleases,
     hasRepoLink: true,
     looksLikeMcp,
+    advisories,
     warnings,
   };
 }
@@ -105,6 +112,7 @@ function notFound(id: string): SourceInfo {
     hasReleases: null,
     hasRepoLink: false,
     looksLikeMcp: id.toLowerCase().includes("mcp"),
+    advisories: null,
     warnings: [],
   };
 }
