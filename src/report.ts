@@ -1,5 +1,6 @@
 import type { CheckResult, Verdict } from "./types.js";
 import type { SessionSummary } from "./session.js";
+import type { HistoryEntry } from "./history.js";
 
 // Minimal ANSI helpers. No dependency; colors auto-disable when not a TTY or
 // when NO_COLOR is set (https://no-color.org).
@@ -28,8 +29,50 @@ function paintVerdict(v: Verdict, text: string): string {
   return c.red(text);
 }
 
-/** Human-readable report for one result. */
-export function renderResult(r: CheckResult): string {
+/** "since last check" line: score delta and, if it flipped, the verdict change. Null when this is the first-ever check. */
+export function renderTrend(previous: HistoryEntry | null, current: CheckResult): string | null {
+  if (!previous) return null;
+  const delta = current.score - previous.score;
+  const arrow = delta > 0 ? c.green("▲") : delta < 0 ? c.red("▼") : c.dim("▬");
+  const deltaStr = delta === 0 ? "no change" : `${delta > 0 ? "+" : ""}${delta} pts`;
+  const since = fmtRecency(Date.now() - previous.t);
+  let line = `  ${arrow} ${deltaStr} since last check (${since}, was ${previous.score}/100)`;
+  if (previous.verdict !== current.verdict) {
+    line += `  ${c.bold(paintVerdict(current.verdict, `${VERDICT_LABEL[previous.verdict]} → ${VERDICT_LABEL[current.verdict]}`))}`;
+  }
+  return line;
+}
+
+/** Fine-grained "time ago" for the trend line -- unlike score.ts's fmtAgo
+ * (built for months-scale activity dates), this handles seconds through
+ * years, since successive `check`/`watch` calls can be minutes apart. */
+function fmtRecency(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return sec <= 1 ? "just now" : `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const month = Math.round(day / 30);
+  if (month < 12) return `${month}mo ago`;
+  const year = (day / 365).toFixed(1).replace(/\.0$/, "");
+  return `${year}y ago`;
+}
+
+/** Tiny ASCII sparkline of score history, oldest to newest. */
+export function renderSparkline(history: HistoryEntry[]): string {
+  if (history.length < 2) return "";
+  const blocks = " ▁▂▃▄▅▆▇█";
+  const points = history
+    .slice(-30)
+    .map((h) => blocks[Math.max(0, Math.min(blocks.length - 1, Math.round((h.score / 100) * (blocks.length - 1))))]);
+  return points.join("");
+}
+
+/** Human-readable report for one result. `previous` (from history.ts) adds a trend line when available. */
+export function renderResult(r: CheckResult, previous?: HistoryEntry | null): string {
   const lines: string[] = [];
   lines.push("");
   lines.push(`  ${c.bold(r.source.name)} ${c.dim(`(${r.source.kind})`)}`);
@@ -44,6 +87,9 @@ export function renderResult(r: CheckResult): string {
   lines.push("");
   const scoreStr = `${r.score}/100`;
   lines.push(`  ${paintVerdict(r.verdict, `SCORE ${scoreStr} · ${VERDICT_LABEL[r.verdict]}`)}`);
+
+  const trend = renderTrend(previous ?? null, r);
+  if (trend) lines.push(trend);
 
   if (r.reasons.length) {
     for (const reason of r.reasons) lines.push(`  ${c.dim("- " + reason)}`);
@@ -60,6 +106,16 @@ export function renderResult(r: CheckResult): string {
 export function renderScanLine(r: CheckResult): string {
   const tag = paintVerdict(r.verdict, VERDICT_LABEL[r.verdict].padEnd(7));
   return `  ${tag} ${String(r.score).padStart(3)}  ${r.source.name}`;
+}
+
+/** One line per tick in `watch` mode: timestamp, verdict, score, and whether it just changed. */
+export function renderWatchLine(r: CheckResult, changed: boolean): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const tag = paintVerdict(r.verdict, VERDICT_LABEL[r.verdict].padEnd(7));
+  const flag = changed ? `  ${c.bold(c.yellow("← changed"))}` : "";
+  return `  ${c.dim(time)}  ${tag} ${String(r.score).padStart(3)}/100${flag}`;
 }
 
 /** Report of recorded wrap sessions: what the agent actually called. */

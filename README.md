@@ -61,6 +61,42 @@ Set `GITHUB_TOKEN` in your environment to raise the GitHub API rate limit.
 
 Exit code is `1` when the verdict is risky, so you can use Scepter in CI.
 
+## Track health over time, not just a snapshot
+
+Every `check` logs its score to `~/.scepter/history`. The next time you check
+the same target, the report shows what changed:
+
+```
+  SCORE 92/100 · HEALTHY
+  ▲ +6 pts since last check (3d ago, was 86/100)
+  ▁▃▅▆▇▇  6 checks recorded
+```
+
+If the verdict itself flips (healthy → caution, say), that's called out
+explicitly, not left for you to notice by comparing two numbers.
+
+## Watch a server instead of remembering to re-check it
+
+```bash
+scepter watch owner/repo --interval=60
+```
+
+Re-checks the target on a schedule (default every 30 minutes) and prints one
+line per tick, same history file `check` reads its trend from. When a verdict
+actually changes, it's flagged inline instead of scrolling past silently:
+
+```
+  Watching owner/repo every 60m. Ctrl+C to stop.
+
+  14:02:11  HEALTHY  92/100
+  15:02:14  HEALTHY  90/100
+  16:02:09  CAUTION  61/100  ← changed
+    owner/repo moved from healthy to caution (90 → 61/100).
+```
+
+Useful for a server you've already wired into an agent and want to know the
+moment it starts to rot, instead of finding out when a tool call fails.
+
 ## Add a health badge to your README
 
 ```bash
