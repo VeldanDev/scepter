@@ -146,16 +146,20 @@ scepter report
 
 Nothing leaves your machine.
 
-## What it checks (v1)
+## What it checks
 
-| Signal | Reads |
-| --- | --- |
-| **Activity** | last publish (npm) or last push (GitHub) |
-| **Maintained** | archived flag, license, releases, link back to source |
-| **Provenance** | stars, maintainers, open issues, description |
-| **MCP fit** | whether it declares itself an MCP server |
+| Signal | Weight | Reads |
+| --- | --- | --- |
+| **Activity** | 35 | last publish (npm) or last push (GitHub) |
+| **Maintained** | 20 | archived flag, license, releases, link back to source |
+| **Provenance** | 15 | stars, maintainers, open issues, description |
+| **MCP fit** | 10 | whether it declares itself an MCP server |
+| **Security** | 20 | known advisories, via GitHub's advisory database |
 
-These come from registry and repository metadata. That is enough to answer the headline question honestly: is this server dead or alive, and is it worth trusting?
+A known **critical** advisory overrides everything else: the verdict is `risky`
+regardless of how well-maintained the project otherwise looks. Couldn't reach
+the advisory API? That's reported as "could not check", not silently treated
+as "no advisories" -- Scepter never claims more certainty than it has.
 
 ## What it does not do (yet)
 
