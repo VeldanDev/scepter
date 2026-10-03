@@ -15,6 +15,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/resolve.test.ts test/mcp-detect.test.ts test/score.test.ts test/advisories.test.ts test/npm-check.test.ts test/github-check.test.ts test/report.test.ts test/badge.test.ts test/history.test.ts test/session.test.ts test/config.test.ts test/check-target.test.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
