@@ -65,7 +65,7 @@ export async function inspectGithub(id: string): Promise<SourceInfo> {
     // best-effort; leave null
   }
 
-  const topics = (repo.topics ?? []).map((t) => t.toLowerCase());
+  const topics = (Array.isArray(repo.topics) ? repo.topics : []).map((t) => t.toLowerCase());
   const desc = repo.description ?? null;
   const looksLikeMcp = detectMcp(id, desc, topics);
 

@@ -46,7 +46,7 @@ export async function inspectNpm(pkg: string): Promise<SourceInfo> {
   const modified = data.time?.modified ? new Date(data.time.modified) : null;
   const lastActivity = publishTime ?? modified;
 
-  const keywords = (data.keywords ?? []).map((k) => k.toLowerCase());
+  const keywords = (Array.isArray(data.keywords) ? data.keywords : []).map((k) => k.toLowerCase());
   const desc = data.description ?? null;
   const looksLikeMcp = detectMcp(data.name ?? pkg, desc, keywords);
 
