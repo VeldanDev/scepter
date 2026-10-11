@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { checkTarget } from "./index.js";
-import { renderInspect, renderResult, renderScanLine, renderSessionReport, renderSparkline } from "./report.js";
-import { inspectServer } from "./inspect.js";
-import { extractTargetsFromConfig } from "./config.js";
+import { renderAudit, renderInspect, renderResult, renderScanLine, renderSessionReport, renderSparkline } from "./report.js";
+import { auditConfig, inspectServer } from "./inspect.js";
+import { extractTargetsFromConfig, readServerSpecs } from "./config.js";
 import { runWrap } from "./wrap.js";
 import { runWatch } from "./watch.js";
 import { runBadge } from "./badge.js";
@@ -12,7 +12,7 @@ import { readSessions } from "./session.js";
 import { recordAndGetPrevious, readHistory } from "./history.js";
 import type { CheckResult, SourceKind } from "./types.js";
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 
 const HELP = `
 scepter ${VERSION}  -  is this MCP server alive, maintained, and safe to use?
@@ -23,6 +23,8 @@ Usage:
   scepter watch <server> [--interval=m]  Re-check on a schedule, flag verdict changes
   scepter badge <server>                 Print a README health badge
   scepter inspect -- <command...>        Start a server, audit its live tools, pin them
+  scepter inspect <url> [--header "K: V"] Same, for a remote (Streamable HTTP) server
+  scepter audit <config-file>            Inspect every server in a config, find toxic flows
   scepter wrap -- <command...>           Run a server through Scepter and record its calls
   scepter report [options]               Show what your wrapped servers actually did
   scepter serve                          Run Scepter itself as an MCP server (stdio)
@@ -44,6 +46,7 @@ Examples:
   scepter watch some-mcp-server --npm --interval=60
   scepter badge acme/weather-mcp
   scepter inspect -- npx -y @scope/weather-mcp
+  scepter audit ~/.cursor/mcp.json
   scepter wrap -- npx -y @scope/weather-mcp
   scepter report
 
@@ -58,13 +61,23 @@ Notes:
 async function main(): Promise<void> {
   const raw = process.argv.slice(2);
 
-  // `inspect` takes a server command after `--`; only --json is read before it.
+  // `inspect` takes a URL, or a server command after `--`. Before `--`, only
+  // --json and repeatable --header "Name: value" (for remote servers) are read.
   if (raw[0] === "inspect") {
     const sep = raw.indexOf("--");
-    const cmd = sep === -1 ? raw.slice(1) : raw.slice(sep + 1);
-    if (cmd.length === 0) return fail("inspect needs a server command, e.g. scepter inspect -- npx -y some-mcp-server");
-    const json = raw.slice(1, sep === -1 ? 1 : sep).includes("--json");
-    const result = await inspectServer(cmd);
+    const opts = raw.slice(1, sep === -1 ? undefined : sep);
+    const json = opts.includes("--json");
+    const headers: Record<string, string> = {};
+    opts.forEach((o, i) => {
+      if (o === "--header" && opts[i + 1]?.includes(":")) {
+        const [k, ...v] = opts[i + 1].split(":");
+        headers[k.trim()] = v.join(":").trim();
+      }
+    });
+    const url = opts.find((o) => /^https?:\/\//.test(o));
+    const cmd = sep === -1 ? [] : raw.slice(sep + 1);
+    if (!url && cmd.length === 0) return fail("inspect needs a URL or a server command, e.g. scepter inspect -- npx -y some-mcp-server");
+    const { toolList, ...result } = await inspectServer(url ? { url, headers } : cmd);
     process.stdout.write(json ? JSON.stringify(result, null, 2) + "\n" : renderInspect(result));
     process.exitCode = result.verdict === "risky" ? 1 : 0;
     return;
@@ -126,6 +139,24 @@ async function main(): Promise<void> {
     const interval = Number(values.interval);
     if (!Number.isFinite(interval) || interval <= 0) return fail("--interval must be a positive number of minutes");
     await runWatch(arg, force, interval);
+    return;
+  }
+
+  if (command === "audit") {
+    if (!arg) return fail("audit needs a config file, e.g. scepter audit ./mcp.json");
+    let specs;
+    try {
+      specs = await readServerSpecs(arg);
+    } catch (err) {
+      return fail(`could not read config: ${(err as Error).message}`);
+    }
+    if (specs.length === 0) {
+      process.stdout.write("\n  No MCP servers found in that config.\n\n");
+      return;
+    }
+    const result = await auditConfig(specs);
+    process.stdout.write(values.json ? JSON.stringify(result, null, 2) + "\n" : renderAudit(result));
+    process.exitCode = result.verdict === "risky" ? 1 : 0;
     return;
   }
 

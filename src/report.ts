@@ -1,7 +1,7 @@
 import type { CheckResult, Verdict } from "./types.js";
 import type { SessionSummary } from "./session.js";
 import type { HistoryEntry } from "./history.js";
-import type { InspectResult } from "./inspect.js";
+import type { AuditResult, InspectResult } from "./inspect.js";
 
 // Minimal ANSI helpers. No dependency; colors auto-disable when not a TTY or
 // when NO_COLOR is set (https://no-color.org).
@@ -196,6 +196,36 @@ export function renderInspect(r: InspectResult): string {
   const bad = r.findings.filter((f) => f.level === "bad").length;
   lines.push(`  ${r.findings.length ? (bad ? MARK.bad : MARK.warn) : MARK.ok} ${"Tool audit".padEnd(12)} ${c.dim(r.findings.length ? `${r.findings.length} finding(s)` : "no poisoned or unmarked destructive tools")}`);
   for (const f of r.findings) lines.push(`    ${f.level === "bad" ? c.red(f.tool) : c.yellow(f.tool)} ${c.dim(f.detail)}`);
+  lines.push("", `  ${paintVerdict(r.verdict, VERDICT_LABEL[r.verdict])}`, "");
+  return lines.join("\n");
+}
+
+/** Report for `scepter audit`: one line per server, then any toxic flow across them. */
+export function renderAudit(r: AuditResult): string {
+  const lines = [""];
+  for (const s of r.servers) {
+    if ("error" in s) {
+      lines.push(`  ${c.dim("SKIPPED")} ${s.server}  ${c.dim(s.error)}`);
+      continue;
+    }
+    const tag = paintVerdict(s.verdict, VERDICT_LABEL[s.verdict].padEnd(7));
+    lines.push(`  ${tag} ${s.server}  ${c.dim(`${s.tools} tools, ~${s.contextTokens.toLocaleString("en-US")} tokens`)}`);
+    for (const f of s.findings) lines.push(`    ${f.level === "bad" ? c.red(f.tool) : c.yellow(f.tool)} ${c.dim(f.detail)}`);
+    for (const n of s.changes?.changed ?? []) lines.push(`    ${c.yellow(n)} ${c.dim("changed since last audit")}`);
+  }
+  const live = r.servers.filter((s): s is InspectResult => !("error" in s));
+  const total = live.reduce((n, s) => n + s.contextTokens, 0);
+  lines.push("", `  ${c.dim(`Together: ${live.reduce((n, s) => n + s.tools, 0)} tools, ~${total.toLocaleString("en-US")} tokens of context on every turn`)}`);
+  if (r.flow) {
+    const show = (xs: string[]) => xs.slice(0, 3).join(", ") + (xs.length > 3 ? ` +${xs.length - 3}` : "");
+    lines.push(
+      "",
+      `  ${MARK.warn} ${c.yellow("Toxic flow")}  ${c.dim("content from outside can steer the agent to read private data and send it out")}`,
+      `    ${c.dim("reads untrusted content:")} ${show(r.flow.untrusted)}`,
+      `    ${c.dim("reads private data:     ")} ${show(r.flow.private)}`,
+      `    ${c.dim("can send it out:        ")} ${show(r.flow.outbound)}`,
+    );
+  }
   lines.push("", `  ${paintVerdict(r.verdict, VERDICT_LABEL[r.verdict])}`, "");
   return lines.join("\n");
 }

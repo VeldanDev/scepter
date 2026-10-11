@@ -30,9 +30,12 @@ describe("scepter serve", () => {
     child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
   });
 
-  it("lists check_server and scan_config", async () => {
+  it("lists all four tools, each with title, annotations and output schema", async () => {
     const res = await rpc("tools/list");
-    assert.deepEqual(res.result.tools.map((t: any) => t.name), ["check_server", "scan_config"]);
+    const tools = res.result.tools;
+    assert.deepEqual(tools.map((t: any) => t.name), ["check_server", "scan_config", "inspect_server", "audit_config"]);
+    // Every tool carries a title, annotations and an output schema, like first-party servers.
+    for (const t of tools) assert.ok(t.title && t.annotations && t.outputSchema, t.name);
   });
 
   it("returns tool errors as isError results, not protocol errors", async () => {

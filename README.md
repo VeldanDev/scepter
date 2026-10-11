@@ -184,7 +184,44 @@ Measured on 11 Oct 2026:
 | `chrome-devtools-mcp` | 30 | 30 | ~6,600 tokens |
 | `@wonderwhy-er/desktop-commander` | 26 | 26 | ~14,400 tokens |
 
+Remote servers work the same way, over Streamable HTTP:
+
+```bash
+scepter inspect https://mcp.deepwiki.com/mcp
+scepter inspect https://example.com/mcp --header "Authorization: Bearer $TOKEN"
+```
+
 The audit is pattern-based and runs entirely on your machine: no account, no API, nothing uploaded. Exit code is `1` on a risky verdict, so it works in CI.
+
+## Audit your whole MCP setup
+
+One server can look fine on its own and still be dangerous next to another. `audit` starts every server in a config (stdio and remote, with their own env and headers), inspects each one, then looks for **toxic flows**: one tool that reads untrusted content, one that reads private data, and one that can send data out. Together they let a malicious web page or issue steer your agent into leaking your files.
+
+```bash
+scepter audit ~/.cursor/mcp.json
+```
+
+A real setup of six popular servers, 11 Oct 2026:
+
+```
+  HEALTHY filesystem  14 tools, ~3,279 tokens
+  HEALTHY playwright  25 tools, ~5,072 tokens
+  HEALTHY chrome-devtools  30 tools, ~6,597 tokens
+  HEALTHY desktop-commander  26 tools, ~14,396 tokens
+  HEALTHY deepwiki  3 tools, ~385 tokens
+  HEALTHY context7  2 tools, ~1,307 tokens
+
+  Together: 100 tools, ~31,036 tokens of context on every turn
+
+  ! Toxic flow  content from outside can steer the agent to read private data and send it out
+    reads untrusted content: playwright/browser_navigate, playwright/browser_navigate_back, chrome-devtools/navigate_page
+    reads private data:      filesystem/read_file, filesystem/read_text_file, filesystem/read_media_file +10
+    can send it out:         playwright/browser_file_upload, chrome-devtools/upload_file
+
+  CAUTION
+```
+
+Every server here is well built. The risk only exists in the combination, which is exactly what a per-server scanner can't see.
 
 ## Let your agent check servers itself
 
@@ -198,12 +235,16 @@ Scepter also runs as an MCP server, so your agent or any MCP client can check a 
 }
 ```
 
-It exposes two tools:
+It exposes four tools, each with a title, safety annotations and a structured output schema:
 
 | Tool | Input | Returns |
 | --- | --- | --- |
 | `check_server` | `target` (owner/repo or npm package), optional `source` | score, verdict and signals for one server |
 | `scan_config` | `path` to an MCP config file, optional `source` | the same for every server in that config |
+| `inspect_server` | `command` + `args`, or a `url` | live tool audit: poisoning, unmarked destructive tools, context cost, changes |
+| `audit_config` | `path` to an MCP config file | every server inspected, plus toxic flows across them |
+
+`inspect_server` and `audit_config` start the servers they examine, so they are not marked read-only: your client will ask before the agent launches anything.
 
 ## What it checks
 
@@ -228,7 +269,8 @@ Scepter does not sandbox the server, watch its network calls, or judge what a to
 
 - **v1**: health and trust check from metadata (`check`, `scan`, `badge`)
 - **v2**: see which servers your agent actually calls, and their failures (`wrap`, `report`)
-- **v2.5**: live audit of the tool list: poisoning, unmarked destructive tools, context cost, rug-pull pins (`inspect`) *(this release)*
+- **v2.5**: live audit of the tool list: poisoning, unmarked destructive tools, context cost, rug-pull pins (`inspect`)
+- **v2.7**: whole-setup audit with toxic flows, remote HTTP servers, and every check available to agents as an annotated MCP tool (`audit`) *(this release)*
 - **v3**: full traces, per-task cost, and replay, with the health check as one view
 
 ## License
