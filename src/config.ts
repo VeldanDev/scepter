@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { ServerSpec } from "./inspect.js";
 
 /**
  * Pull candidate MCP server identifiers out of a config file.
@@ -31,6 +32,24 @@ export async function extractTargetsFromConfig(path: string): Promise<string[]> 
   }
 
   return [...targets];
+}
+
+/**
+ * Every server in a config as something `inspect` can connect to: stdio
+ * entries keep their command, args and env; remote entries their URL and
+ * headers (`url` or `serverUrl`, as written by different clients).
+ */
+export async function readServerSpecs(path: string): Promise<ServerSpec[]> {
+  const json = JSON.parse(await readFile(path, "utf8"));
+  const servers: Record<string, any> = json.mcpServers ?? json.servers ?? {};
+  const specs: ServerSpec[] = [];
+  for (const [name, e] of Object.entries(servers)) {
+    if (e?.disabled) continue;
+    const url = e?.url ?? e?.serverUrl;
+    if (typeof url === "string") specs.push({ name, url, headers: e.headers });
+    else if (typeof e?.command === "string") specs.push({ name, command: e.command, args: e.args ?? [], env: e.env });
+  }
+  return specs;
 }
 
 function firstPackageArg(args: string[]): string | null {
