@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ServerSpec } from "./inspect.js";
 
 /**
@@ -50,6 +53,51 @@ export async function readServerSpecs(path: string): Promise<ServerSpec[]> {
     else if (typeof e?.command === "string") specs.push({ name, command: e.command, args: e.args ?? [], env: e.env });
   }
   return specs;
+}
+
+/**
+ * MCP config files that exist on this machine, for `scepter audit` with no
+ * path. Locations per client and OS, as the clients themselves document them.
+ */
+export function discoverConfigs(home = homedir(), cwd = process.cwd()): { client: string; path: string }[] {
+  const appData = join(home, "AppData", "Roaming"); // %APPDATA% default; derived from home so tests stay isolated
+  const appSupport =
+    process.platform === "win32" ? appData : process.platform === "darwin" ? join(home, "Library", "Application Support") : join(home, ".config");
+  const candidates: [string, string][] = [
+    ["claude-code", join(home, ".claude.json")],
+    ["claude-desktop", join(appSupport, "Claude", "claude_desktop_config.json")],
+    ["cursor", join(home, ".cursor", "mcp.json")],
+    ["windsurf", join(home, ".codeium", "windsurf", "mcp_config.json")],
+    ["vscode", join(appSupport, "Code", "User", "mcp.json")],
+    ["gemini", join(home, ".gemini", "settings.json")],
+    ["project", join(cwd, ".mcp.json")],
+    ["project", join(cwd, ".cursor", "mcp.json")],
+    ["project", join(cwd, ".vscode", "mcp.json")],
+  ];
+  return candidates.filter(([, p]) => existsSync(p)).map(([client, path]) => ({ client, path }));
+}
+
+/** Every server across the discovered configs, named "<client>/<server>", duplicates dropped. */
+export async function discoverServerSpecs(): Promise<{ configs: string[]; specs: ServerSpec[] }> {
+  const seen = new Set<string>();
+  const specs: ServerSpec[] = [];
+  const configs: string[] = [];
+  for (const { client, path } of discoverConfigs()) {
+    let found: ServerSpec[];
+    try {
+      found = await readServerSpecs(path);
+    } catch {
+      continue; // a malformed config in one client shouldn't stop the audit of the others
+    }
+    if (found.length) configs.push(path);
+    for (const s of found) {
+      const key = JSON.stringify("url" in s ? [s.url] : [s.command, s.args]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      specs.push({ ...s, name: `${client}/${s.name}` });
+    }
+  }
+  return { configs, specs };
 }
 
 function firstPackageArg(args: string[]): string | null {

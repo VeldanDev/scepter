@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { checkTarget } from "./index.js";
 import { renderAudit, renderInspect, renderResult, renderScanLine, renderSessionReport, renderSparkline } from "./report.js";
 import { auditConfig, inspectServer } from "./inspect.js";
-import { extractTargetsFromConfig, readServerSpecs } from "./config.js";
+import { discoverServerSpecs, extractTargetsFromConfig, readServerSpecs } from "./config.js";
 import { runWrap } from "./wrap.js";
 import { runWatch } from "./watch.js";
 import { runBadge } from "./badge.js";
@@ -12,7 +12,7 @@ import { readSessions } from "./session.js";
 import { recordAndGetPrevious, readHistory } from "./history.js";
 import type { CheckResult, SourceKind } from "./types.js";
 
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 
 const HELP = `
 scepter ${VERSION}  -  is this MCP server alive, maintained, and safe to use?
@@ -24,7 +24,7 @@ Usage:
   scepter badge <server>                 Print a README health badge
   scepter inspect -- <command...>        Start a server, audit its live tools, pin them
   scepter inspect <url> [--header "K: V"] Same, for a remote (Streamable HTTP) server
-  scepter audit <config-file>            Inspect every server in a config, find toxic flows
+  scepter audit [config-file]            Inspect every server in a config (or all found), find toxic flows
   scepter wrap -- <command...>           Run a server through Scepter and record its calls
   scepter report [options]               Show what your wrapped servers actually did
   scepter serve                          Run Scepter itself as an MCP server (stdio)
@@ -143,12 +143,18 @@ async function main(): Promise<void> {
   }
 
   if (command === "audit") {
-    if (!arg) return fail("audit needs a config file, e.g. scepter audit ./mcp.json");
     let specs;
-    try {
-      specs = await readServerSpecs(arg);
-    } catch (err) {
-      return fail(`could not read config: ${(err as Error).message}`);
+    if (arg) {
+      try {
+        specs = await readServerSpecs(arg);
+      } catch (err) {
+        return fail(`could not read config: ${(err as Error).message}`);
+      }
+    } else {
+      // No path: audit every MCP client config found on this machine.
+      const found = await discoverServerSpecs();
+      specs = found.specs;
+      if (!values.json) process.stdout.write(`\n  Found ${found.configs.length} config(s):\n${found.configs.map((p) => `    ${p}\n`).join("")}`);
     }
     if (specs.length === 0) {
       process.stdout.write("\n  No MCP servers found in that config.\n\n");
