@@ -23,17 +23,7 @@ export function runWrap(argv: string[]): void {
   const server = deriveServerName(cmd, args);
   const session = createSession(server, argv.join(" "));
 
-  // On Windows, npx/npm and friends are .cmd shims that can only be spawned
-  // through a shell. Everything else (node, direct binaries, absolute paths)
-  // is spawned without a shell, which is safer and avoids Node's shell-args
-  // deprecation warning.
-  const winCmdRunner =
-    process.platform === "win32" && /^(npx|npm|pnpm|yarn|bunx|corepack)$/i.test(cmd);
-  const child = spawn(cmd, args, {
-    stdio: ["pipe", "pipe", "inherit"],
-    shell: winCmdRunner,
-    windowsHide: true,
-  });
+  const child = spawnServer(cmd, args);
 
   // Raw forwarding: exact bytes, no re-serialization.
   process.stdin.pipe(child.stdin);
@@ -123,7 +113,21 @@ function teeParse(stream: NodeJS.ReadableStream, onMsg: (msg: Record<string, unk
   });
 }
 
-function deriveServerName(cmd: string, args: string[]): string {
+/** Start an MCP server over stdio. Shared by `wrap` and `inspect`. */
+export function spawnServer(cmd: string, args: string[], stderr: "inherit" | "ignore" = "inherit") {
+  // On Windows, npx/npm and friends are .cmd shims that can only be spawned
+  // through a shell. Everything else (node, direct binaries, absolute paths)
+  // is spawned without a shell, which is safer and avoids Node's shell-args
+  // deprecation warning.
+  const winCmdRunner =
+    process.platform === "win32" && /^(npx|npm|pnpm|yarn|bunx|corepack)$/i.test(cmd);
+  // Going through cmd.exe explicitly (instead of `shell: true`) avoids Node's
+  // DEP0190 warning; the arguments reach the shim exactly as before.
+  const [file, argv] = winCmdRunner ? ["cmd.exe", ["/d", "/s", "/c", cmd, ...args]] : [cmd, args];
+  return spawn(file, argv, { stdio: ["pipe", "pipe", stderr], windowsHide: true });
+}
+
+export function deriveServerName(cmd: string, args: string[]): string {
   const runner = /^(npx|npm|bunx|pnpm|yarn|deno)(\.cmd)?$/i.test(cmd);
   if (runner) {
     for (const a of args) {
@@ -131,6 +135,11 @@ function deriveServerName(cmd: string, args: string[]): string {
       if (["dlx", "exec", "run", "-y", "add"].includes(a)) continue;
       return a.startsWith("@") ? a.split("@").slice(0, 2).join("@").replace(/@$/, "") : a.split("@")[0];
     }
+  }
+  // `node server.js`, `python -m pkg` and similar: the script says more than the interpreter.
+  if (/^(node|python3?|bun|deno|uv|uvx)(\.exe)?$/i.test(cmd)) {
+    const script = args.find((a) => !a.startsWith("-") && a !== "run");
+    if (script) return script.replace(/\\/g, "/").split("/").pop()!.replace(/\.(m?js|ts|py)$/, "");
   }
   return cmd.replace(/\\/g, "/").split("/").pop() || cmd;
 }

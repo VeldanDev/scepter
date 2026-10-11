@@ -1,6 +1,7 @@
 import type { CheckResult, Verdict } from "./types.js";
 import type { SessionSummary } from "./session.js";
 import type { HistoryEntry } from "./history.js";
+import type { InspectResult } from "./inspect.js";
 
 // Minimal ANSI helpers. No dependency; colors auto-disable when not a TTY or
 // when NO_COLOR is set (https://no-color.org).
@@ -174,5 +175,27 @@ export function renderSessionReport(sessions: SessionSummary[]): string {
     lines.push("", c.green("  All wrapped servers ran clean."));
   }
   lines.push("");
+  return lines.join("\n");
+}
+
+/** Report for `scepter inspect`: what the live server actually hands the agent. */
+export function renderInspect(r: InspectResult): string {
+  const lines = ["", `  ${c.bold(r.server)} ${c.dim(`(live, MCP ${r.protocolVersion ?? "unknown"})`)}`, ""];
+  const cost = r.contextTokens >= 10_000 ? MARK.warn : MARK.ok;
+  lines.push(`  ${MARK.ok} ${"Tools".padEnd(12)} ${c.dim(`${r.tools} tools, ${r.annotated} with safety annotations`)}`);
+  lines.push(`  ${cost} ${"Context".padEnd(12)} ${c.dim(`~${r.contextTokens.toLocaleString("en-US")} tokens of tool definitions on every turn`)}`);
+  if (!r.changes) {
+    lines.push(`  ${MARK.ok} ${"Pinned".padEnd(12)} ${c.dim("first inspection, tool list pinned for next time")}`);
+  } else {
+    const { added, removed, changed } = r.changes;
+    const mark = changed.length ? MARK.warn : MARK.ok;
+    const parts = [changed.length && `${changed.length} changed`, added.length && `${added.length} added`, removed.length && `${removed.length} removed`].filter(Boolean);
+    lines.push(`  ${mark} ${"Pinned".padEnd(12)} ${c.dim(parts.length ? parts.join(", ") + " since last inspection" : "no tool changes since last inspection")}`);
+    for (const n of changed) lines.push(`    ${c.yellow("changed:")} ${n}`);
+  }
+  const bad = r.findings.filter((f) => f.level === "bad").length;
+  lines.push(`  ${r.findings.length ? (bad ? MARK.bad : MARK.warn) : MARK.ok} ${"Tool audit".padEnd(12)} ${c.dim(r.findings.length ? `${r.findings.length} finding(s)` : "no poisoned or unmarked destructive tools")}`);
+  for (const f of r.findings) lines.push(`    ${f.level === "bad" ? c.red(f.tool) : c.yellow(f.tool)} ${c.dim(f.detail)}`);
+  lines.push("", `  ${paintVerdict(r.verdict, VERDICT_LABEL[r.verdict])}`, "");
   return lines.join("\n");
 }
