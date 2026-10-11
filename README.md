@@ -149,6 +149,43 @@ scepter report
 
 Nothing leaves your machine.
 
+## Inspect what a server actually hands your agent
+
+`check` reads metadata. `inspect` starts the server, completes the MCP handshake and audits the live tool list, the exact text your agent will read:
+
+```bash
+scepter inspect -- npx -y @playwright/mcp@latest
+```
+
+```
+  @playwright/mcp (live, MCP 2025-06-18)
+
+  ✓ Tools        25 tools, 25 with safety annotations
+  ✓ Context      ~5,072 tokens of tool definitions on every turn
+  ✓ Pinned       first inspection, tool list pinned for next time
+  ✓ Tool audit   no poisoned or unmarked destructive tools
+
+  HEALTHY
+```
+
+| Check | What it catches |
+| --- | --- |
+| **Tool poisoning** | descriptions or parameter docs that tell the model to hide things from you, ignore earlier instructions, read SSH or cloud keys, or redirect other tools; invisible Unicode characters |
+| **Unmarked destructive tools** | tools named like `delete_*`, `exec`, `drop_*` without a `destructiveHint`, so clients won't ask before running them |
+| **Context cost** | how many tokens the tool definitions take on every turn, before you type anything |
+| **Rug pulls** | every tool is pinned to a hash in `~/.scepter/pins`; the next `inspect` reports any tool whose description or schema silently changed |
+
+Measured on 11 Oct 2026:
+
+| Server | Tools | Annotated | Context per turn |
+| --- | --- | --- | --- |
+| `@modelcontextprotocol/server-filesystem` | 14 | 14 | ~3,300 tokens |
+| `@playwright/mcp` | 25 | 25 | ~5,100 tokens |
+| `chrome-devtools-mcp` | 30 | 30 | ~6,600 tokens |
+| `@wonderwhy-er/desktop-commander` | 26 | 26 | ~14,400 tokens |
+
+The audit is pattern-based and runs entirely on your machine: no account, no API, nothing uploaded. Exit code is `1` on a risky verdict, so it works in CI.
+
 ## Let your agent check servers itself
 
 Scepter also runs as an MCP server, so your agent or any MCP client can check a server before wiring it in:
@@ -185,13 +222,14 @@ as "no advisories" -- Scepter never claims more certainty than it has.
 
 ## What it does not do (yet)
 
-Scepter v1 does not run the server, complete a live MCP handshake, inspect the exact permissions it requests at runtime, or watch for unexpected network calls. Those are on the roadmap. Scepter never claims a server is "safe" or "undetectable", only what the metadata shows.
+Scepter does not sandbox the server, watch its network calls, or judge what a tool does at runtime beyond its declared description and annotations. Pattern checks can miss a cleverly worded poisoned description. Scepter never claims a server is "safe" or "undetectable", only what it can observe.
 
 ## Roadmap
 
-- **v1** — health and trust check from metadata (`check`, `scan`, `badge`)
-- **v2** — see which servers your agent actually calls, and their failures (`wrap`, `report`) *(this release)*
-- **v3** — full traces, per-task cost, and replay, with the health check as one view
+- **v1**: health and trust check from metadata (`check`, `scan`, `badge`)
+- **v2**: see which servers your agent actually calls, and their failures (`wrap`, `report`)
+- **v2.5**: live audit of the tool list: poisoning, unmarked destructive tools, context cost, rug-pull pins (`inspect`) *(this release)*
+- **v3**: full traces, per-task cost, and replay, with the health check as one view
 
 ## License
 

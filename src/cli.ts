@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { checkTarget } from "./index.js";
-import { renderResult, renderScanLine, renderSessionReport, renderSparkline } from "./report.js";
+import { renderInspect, renderResult, renderScanLine, renderSessionReport, renderSparkline } from "./report.js";
+import { inspectServer } from "./inspect.js";
 import { extractTargetsFromConfig } from "./config.js";
 import { runWrap } from "./wrap.js";
 import { runWatch } from "./watch.js";
@@ -11,7 +12,7 @@ import { readSessions } from "./session.js";
 import { recordAndGetPrevious, readHistory } from "./history.js";
 import type { CheckResult, SourceKind } from "./types.js";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 
 const HELP = `
 scepter ${VERSION}  -  is this MCP server alive, maintained, and safe to use?
@@ -21,6 +22,7 @@ Usage:
   scepter scan <config-file> [options]   Check every server in an MCP config
   scepter watch <server> [--interval=m]  Re-check on a schedule, flag verdict changes
   scepter badge <server>                 Print a README health badge
+  scepter inspect -- <command...>        Start a server, audit its live tools, pin them
   scepter wrap -- <command...>           Run a server through Scepter and record its calls
   scepter report [options]               Show what your wrapped servers actually did
   scepter serve                          Run Scepter itself as an MCP server (stdio)
@@ -41,6 +43,7 @@ Examples:
   scepter check modelcontextprotocol/servers
   scepter watch some-mcp-server --npm --interval=60
   scepter badge acme/weather-mcp
+  scepter inspect -- npx -y @scope/weather-mcp
   scepter wrap -- npx -y @scope/weather-mcp
   scepter report
 
@@ -54,6 +57,18 @@ Notes:
 
 async function main(): Promise<void> {
   const raw = process.argv.slice(2);
+
+  // `inspect` takes a server command after `--`; only --json is read before it.
+  if (raw[0] === "inspect") {
+    const sep = raw.indexOf("--");
+    const cmd = sep === -1 ? raw.slice(1) : raw.slice(sep + 1);
+    if (cmd.length === 0) return fail("inspect needs a server command, e.g. scepter inspect -- npx -y some-mcp-server");
+    const json = raw.slice(1, sep === -1 ? 1 : sep).includes("--json");
+    const result = await inspectServer(cmd);
+    process.stdout.write(json ? JSON.stringify(result, null, 2) + "\n" : renderInspect(result));
+    process.exitCode = result.verdict === "risky" ? 1 : 0;
+    return;
+  }
 
   // `wrap` is special: everything after it (or after `--`) is the child command,
   // with its own flags, so it must not go through parseArgs.
