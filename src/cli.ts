@@ -6,11 +6,12 @@ import { extractTargetsFromConfig } from "./config.js";
 import { runWrap } from "./wrap.js";
 import { runWatch } from "./watch.js";
 import { runBadge } from "./badge.js";
+import { runServe } from "./serve.js";
 import { readSessions } from "./session.js";
 import { recordAndGetPrevious, readHistory } from "./history.js";
 import type { CheckResult, SourceKind } from "./types.js";
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 const HELP = `
 scepter ${VERSION}  -  is this MCP server alive, maintained, and safe to use?
@@ -22,6 +23,7 @@ Usage:
   scepter badge <server>                 Print a README health badge
   scepter wrap -- <command...>           Run a server through Scepter and record its calls
   scepter report [options]               Show what your wrapped servers actually did
+  scepter serve                          Run Scepter itself as an MCP server (stdio)
 
 Targets:
   a github repo   owner/repo  or  https://github.com/owner/repo
@@ -133,6 +135,11 @@ async function main(): Promise<void> {
   if (command === "badge") {
     if (!arg) return fail("badge needs a target, e.g. scepter badge owner/repo");
     await runBadge(arg, force, Boolean(values.json));
+    return;
+  }
+
+  if (command === "serve") {
+    runServe(VERSION);
     return;
   }
 

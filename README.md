@@ -149,6 +149,25 @@ scepter report
 
 Nothing leaves your machine.
 
+## Let your agent check servers itself
+
+Scepter also runs as an MCP server, so your agent or any MCP client can check a server before wiring it in:
+
+```json
+{
+  "mcpServers": {
+    "scepter": { "command": "npx", "args": ["-y", "scepter-mcp", "serve"] }
+  }
+}
+```
+
+It exposes two tools:
+
+| Tool | Input | Returns |
+| --- | --- | --- |
+| `check_server` | `target` (owner/repo or npm package), optional `source` | score, verdict and signals for one server |
+| `scan_config` | `path` to an MCP config file, optional `source` | the same for every server in that config |
+
 ## What it checks
 
 | Signal | Weight | Reads |
