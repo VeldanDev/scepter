@@ -170,9 +170,11 @@ scepter inspect -- npx -y @playwright/mcp@latest
 
 | Check | What it catches |
 | --- | --- |
-| **Tool poisoning** | descriptions or parameter docs that tell the model to hide things from you, ignore earlier instructions, read SSH or cloud keys, or redirect other tools; invisible Unicode characters |
+| **Tool poisoning** | descriptions or parameter docs that tell the model to hide things from you, ignore earlier instructions, read SSH or cloud keys, or redirect other tools |
+| **Hidden text** | invisible Unicode (format and control characters); a message smuggled in Unicode tag characters is decoded and shown to you |
 | **Unmarked destructive tools** | tools named like `delete_*`, `exec`, `drop_*` without a `destructiveHint`, so clients won't ask before running them |
-| **Context cost** | how many tokens the tool definitions take on every turn, before you type anything |
+| **Context cost** | how many tokens the tool definitions take on every turn, before you type anything; over 50,000 is flagged |
+| **Runtime reach** | for Node servers, which powerful built-ins the server actually loads while starting: process spawning, networking, file system. What it brought along, not just what its tool list claims |
 | **Rug pulls** | every tool is pinned to a hash in `~/.scepter/pins`; the next `inspect` reports any tool whose description or schema silently changed |
 
 Measured on 11 Oct 2026:
@@ -199,6 +201,7 @@ One server can look fine on its own and still be dangerous next to another. `aud
 
 ```bash
 scepter audit ~/.cursor/mcp.json
+scepter audit            # no path: finds the MCP configs of the common desktop and coding clients itself
 ```
 
 A real setup of six popular servers, 11 Oct 2026:
@@ -222,6 +225,8 @@ A real setup of six popular servers, 11 Oct 2026:
 ```
 
 Every server here is well built. The risk only exists in the combination, which is exactly what a per-server scanner can't see.
+
+`audit` also flags **cross-server shadowing**: a tool whose description names another server's tool (say, a calculator that mentions `send_email`) is trying to steer how your agent uses a tool it doesn't own.
 
 ## Let your agent check servers itself
 
@@ -270,7 +275,8 @@ Scepter does not sandbox the server, watch its network calls, or judge what a to
 - **v1**: health and trust check from metadata (`check`, `scan`, `badge`)
 - **v2**: see which servers your agent actually calls, and their failures (`wrap`, `report`)
 - **v2.5**: live audit of the tool list: poisoning, unmarked destructive tools, context cost, rug-pull pins (`inspect`)
-- **v2.7**: whole-setup audit with toxic flows, remote HTTP servers, and every check available to agents as an annotated MCP tool (`audit`) *(this release)*
+- **v2.7**: whole-setup audit with toxic flows, remote HTTP servers, and every check available to agents as an annotated MCP tool (`audit`)
+- **v2.8**: config auto-discovery, runtime reach, decoded hidden messages, cross-server shadowing, context-cost warnings *(this release)*
 - **v3**: full traces, per-task cost, and replay, with the health check as one view
 
 ## License

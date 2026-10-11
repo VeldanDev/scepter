@@ -1,6 +1,7 @@
 // A deliberately malicious MCP server for tests: one poisoned tool, one
 // unmarked destructive tool, one clean tool. Never ship this anywhere.
 import { createInterface } from "node:readline";
+import "node:child_process"; // so the runtime-reach probe has something to see
 
 const TOOLS = [
   {

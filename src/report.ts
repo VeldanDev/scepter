@@ -193,6 +193,7 @@ export function renderInspect(r: InspectResult): string {
     lines.push(`  ${mark} ${"Pinned".padEnd(12)} ${c.dim(parts.length ? parts.join(", ") + " since last inspection" : "no tool changes since last inspection")}`);
     for (const n of changed) lines.push(`    ${c.yellow("changed:")} ${n}`);
   }
+  if (r.reach) lines.push(`  ${MARK.ok} ${"Reach".padEnd(12)} ${c.dim(reachText(r.reach))}`);
   const bad = r.findings.filter((f) => f.level === "bad").length;
   lines.push(`  ${r.findings.length ? (bad ? MARK.bad : MARK.warn) : MARK.ok} ${"Tool audit".padEnd(12)} ${c.dim(r.findings.length ? `${r.findings.length} finding(s)` : "no poisoned or unmarked destructive tools")}`);
   for (const f of r.findings) lines.push(`    ${f.level === "bad" ? c.red(f.tool) : c.yellow(f.tool)} ${c.dim(f.detail)}`);
@@ -209,7 +210,8 @@ export function renderAudit(r: AuditResult): string {
       continue;
     }
     const tag = paintVerdict(s.verdict, VERDICT_LABEL[s.verdict].padEnd(7));
-    lines.push(`  ${tag} ${s.server}  ${c.dim(`${s.tools} tools, ~${s.contextTokens.toLocaleString("en-US")} tokens`)}`);
+    const reach = s.reach ? `, ${reachText(s.reach)}` : "";
+    lines.push(`  ${tag} ${s.server}  ${c.dim(`${s.tools} tools, ~${s.contextTokens.toLocaleString("en-US")} tokens${reach}`)}`);
     for (const f of s.findings) lines.push(`    ${f.level === "bad" ? c.red(f.tool) : c.yellow(f.tool)} ${c.dim(f.detail)}`);
     for (const n of s.changes?.changed ?? []) lines.push(`    ${c.yellow(n)} ${c.dim("changed since last audit")}`);
   }
@@ -228,4 +230,11 @@ export function renderAudit(r: AuditResult): string {
   }
   lines.push("", `  ${paintVerdict(r.verdict, VERDICT_LABEL[r.verdict])}`, "");
   return lines.join("\n");
+}
+
+/** "can run processes, network, files" from what the server loaded at runtime. */
+function reachText(r: NonNullable<InspectResult["reach"]>): string {
+  // Loaded, not proven used: a dependency can pull in a module the server never calls.
+  const parts = [r.processes && "processes", r.network && "network", r.files && "files"].filter(Boolean);
+  return parts.length ? `loads modules for ${parts.join(", ")}` : "loads no process, network or file modules";
 }
