@@ -114,7 +114,7 @@ function teeParse(stream: NodeJS.ReadableStream, onMsg: (msg: Record<string, unk
 }
 
 /** Start an MCP server over stdio. Shared by `wrap` and `inspect`. */
-export function spawnServer(cmd: string, args: string[], stderr: "inherit" | "ignore" = "inherit") {
+export function spawnServer(cmd: string, args: string[], stderr: "inherit" | "ignore" = "inherit", env?: Record<string, string>) {
   // On Windows, npx/npm and friends are .cmd shims that can only be spawned
   // through a shell. Everything else (node, direct binaries, absolute paths)
   // is spawned without a shell, which is safer and avoids Node's shell-args
@@ -124,7 +124,7 @@ export function spawnServer(cmd: string, args: string[], stderr: "inherit" | "ig
   // Going through cmd.exe explicitly (instead of `shell: true`) avoids Node's
   // DEP0190 warning; the arguments reach the shim exactly as before.
   const [file, argv] = winCmdRunner ? ["cmd.exe", ["/d", "/s", "/c", cmd, ...args]] : [cmd, args];
-  return spawn(file, argv, { stdio: ["pipe", "pipe", stderr], windowsHide: true });
+  return spawn(file, argv, { stdio: ["pipe", "pipe", stderr], windowsHide: true, env: env ? { ...process.env, ...env } : undefined });
 }
 
 export function deriveServerName(cmd: string, args: string[]): string {
