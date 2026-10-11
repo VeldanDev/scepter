@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { deriveServerName, spawnServer } from "./wrap.js";
+import { startReachProbe, type Reach } from "./reach.js";
 import type { Verdict } from "./types.js";
 
 // `scepter inspect -- <command>`: start the server for real, complete the MCP
@@ -33,6 +34,8 @@ export interface InspectResult {
   contextTokens: number;
   findings: Finding[];
   changes: { added: string[]; removed: string[]; changed: string[] } | null;
+  /** Node built-ins the server loaded at runtime; null for remote or non-Node servers. */
+  reach: Reach | null;
   verdict: Verdict;
 }
 
@@ -48,9 +51,23 @@ const POISON: [RegExp, string][] = [
   // Only real key material: config tools legitimately mention mcp.json or .env.
   [/(~\/\.ssh|\bid_rsa\b|\bid_ed25519\b|\.aws\/credentials)/i, "references secret key files"],
 ];
-// Zero-width, bidi-override and Unicode tag characters: invisible to a human
-// reviewing the description, still read by the model.
-const INVISIBLE = /[​-‏‪-‮⁠-⁤﻿]|[\u{E0000}-\u{E007F}]/u;
+/**
+ * Format (Cf) and control (Cc) characters: invisible to a human reviewing the
+ * description, still read by the model. Unicode Tag characters (U+E0020..E007E)
+ * mirror printable ASCII one-to-one, so a whole instruction can hide in them;
+ * that message is decoded and shown.
+ */
+export function hiddenCharacters(text: string): { kinds: number; message: string } | null {
+  const kinds = new Set<string>();
+  let message = "";
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (ch === "\n" || ch === "\r" || ch === "\t") continue;
+    if (cp >= 0xe0020 && cp <= 0xe007e) message += String.fromCharCode(cp - 0xe0000);
+    if (/[\p{Cf}\p{Cc}]/u.test(ch)) kinds.add(cp >= 0xe0000 && cp <= 0xe007f ? "tag" : ch);
+  }
+  return kinds.size ? { kinds: kinds.size, message: message.trim() } : null;
+}
 const DESTRUCTIVE = /(^|_|-)(delete|remove|drop|destroy|truncate|purge|wipe|kill|exec|execute|shell|run_command|overwrite|force_push)(_|-|$)/i;
 
 export function auditTools(tools: Tool[]): Finding[] {
@@ -61,7 +78,17 @@ export function auditTools(tools: Tool[]): Finding[] {
       const m = text.match(re);
       if (m) out.push({ tool: t.name, level: "bad", kind: "poisoning", detail: `${detail}: "${m[0].slice(0, 60)}"` });
     }
-    if (INVISIBLE.test(text)) out.push({ tool: t.name, level: "bad", kind: "poisoning", detail: "contains invisible characters" });
+    // Raw strings, not JSON: JSON.stringify would escape control characters into plain text.
+    const raw = [t.description ?? "", ...Object.values(t.inputSchema?.properties ?? {}).map((p: any) => String(p?.description ?? ""))].join("\n");
+    const hidden = hiddenCharacters(raw);
+    if (hidden) {
+      // One stray soft hyphen or emoji joiner is common; several kinds, or a decoded message, is deliberate.
+      const deliberate = hidden.message.length > 0 || hidden.kinds >= 3;
+      const detail = hidden.message
+        ? `hides a message in invisible Unicode tag characters: "${hidden.message.slice(0, 60)}"`
+        : `contains ${hidden.kinds} kind(s) of invisible characters`;
+      out.push({ tool: t.name, level: deliberate ? "bad" : "warn", kind: "poisoning", detail });
+    }
     const a = t.annotations ?? {};
     if (DESTRUCTIVE.test(t.name) && a.destructiveHint !== true && a.readOnlyHint !== true) {
       out.push({ tool: t.name, level: "warn", kind: "unmarked", detail: "looks destructive but has no destructiveHint, so clients won't ask before running it" });
@@ -71,6 +98,9 @@ export function auditTools(tools: Tool[]): Finding[] {
 }
 
 /** Rough token count of the tool list the client sends the model on every turn. */
+/** Above this, the tool list alone eats a large share of a typical context window. */
+export const CONTEXT_WARN_TOKENS = 50_000;
+
 export function contextTokens(tools: Tool[]): number {
   return Math.ceil(JSON.stringify(tools).length / 4);
 }
@@ -186,9 +216,11 @@ function httpRpc(spec: { url: string; headers?: Record<string, string> }): Rpc {
 }
 
 /** Handshake + paginated tools/list. Accepts a spec, or a bare stdio argv. */
-export function listTools(target: ServerSpec | string[], timeoutMs = 60_000): Promise<{ protocolVersion: string | null; tools: Tool[] }> {
+export function listTools(target: ServerSpec | string[], timeoutMs = 60_000): Promise<{ protocolVersion: string | null; tools: Tool[]; reach: Reach | null }> {
   const spec: ServerSpec = Array.isArray(target) ? { command: target[0], args: target.slice(1) } : target;
-  const rpc = "url" in spec ? httpRpc(spec) : stdioRpc(spec);
+  // Stdio servers get the runtime-reach probe; remote ones run elsewhere.
+  const probe = "url" in spec ? null : startReachProbe(spec.env?.NODE_OPTIONS);
+  const rpc = "url" in spec ? httpRpc(spec) : stdioRpc({ ...spec, env: { ...spec.env, ...probe!.env } });
   const work = (async () => {
     const init = await rpc.call("initialize", {
       protocolVersion: "2025-06-18",
@@ -203,10 +235,14 @@ export function listTools(target: ServerSpec | string[], timeoutMs = 60_000): Pr
       tools.push(...(page?.tools ?? []));
       cursor = page?.nextCursor;
     } while (cursor);
-    return { protocolVersion: init?.protocolVersion ?? null, tools };
+    await new Promise((r) => setTimeout(r, 400)); // let the probe write what the server loaded
+    return { protocolVersion: init?.protocolVersion ?? null, tools, reach: probe?.collect() ?? null };
   })();
   const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`no tool list after ${timeoutMs / 1000}s`)), timeoutMs).unref());
-  return Promise.race([work, rpc.died, timeout]).finally(() => rpc.close());
+  return Promise.race([work, rpc.died, timeout]).finally(() => {
+    rpc.close();
+    probe?.cleanup();
+  });
 }
 
 export function specName(spec: ServerSpec): string {
@@ -217,17 +253,27 @@ export function specName(spec: ServerSpec): string {
 export async function inspectServer(target: ServerSpec | string[]): Promise<InspectResult & { toolList: Tool[] }> {
   const spec: ServerSpec = Array.isArray(target) ? { command: target[0], args: target.slice(1) } : target;
   const server = specName(spec);
-  const { protocolVersion, tools } = await listTools(spec);
+  const { protocolVersion, tools, reach } = await listTools(spec);
   const findings = auditTools(tools);
+  const tokens = contextTokens(tools);
+  if (tokens >= CONTEXT_WARN_TOKENS) {
+    findings.push({
+      tool: "(all tools)",
+      level: "warn",
+      kind: "context",
+      detail: `tool definitions alone take ~${tokens.toLocaleString("en-US")} tokens of the model's context on every turn; enable only the tools you need if the server allows it`,
+    });
+  }
   const changes = pinAndDiff(server, tools);
   return {
     server,
     protocolVersion,
     tools: tools.length,
     annotated: tools.filter((t) => t.annotations && Object.keys(t.annotations).length).length,
-    contextTokens: contextTokens(tools),
+    contextTokens: tokens,
     findings,
     changes,
+    reach,
     verdict: judge(findings, changes),
     toolList: tools,
   };
@@ -282,6 +328,33 @@ export interface AuditResult {
 }
 
 /** Inspect every server in a config, then look for toxic flows across all of them. */
+/**
+ * A server's tool descriptions naming another server's tools. Servers should be
+ * self-contained; one that talks about someone else's tools is trying to steer
+ * how the agent uses them (cross-server shadowing). Only distinctive names count
+ * (snake/kebab case, 5+ chars), so a word like "search" never matches.
+ */
+export function crossServerReferences(
+  server: { server: string; toolList: Tool[] },
+  all: { server: string; toolList: Tool[] }[],
+): Finding[] {
+  const own = new Set(server.toolList.map((t) => t.name));
+  const others = all
+    .filter((s) => s.server !== server.server)
+    .flatMap((s) => s.toolList.map((t) => ({ server: s.server, name: t.name })))
+    .filter((o) => !own.has(o.name) && o.name.length >= 5 && /[_-]/.test(o.name));
+  const out: Finding[] = [];
+  for (const t of server.toolList) {
+    const text = t.description ?? "";
+    for (const o of others) {
+      if (new RegExp(`\\b${o.name.replace(/[-]/g, "\\-")}\\b`).test(text)) {
+        out.push({ tool: t.name, level: "bad", kind: "shadowing", detail: `describes another server's tool: ${o.server}/${o.name}` });
+      }
+    }
+  }
+  return out;
+}
+
 export async function auditConfig(specs: ServerSpec[]): Promise<AuditResult> {
   const done = await Promise.all(
     specs.map((s) =>
@@ -289,6 +362,12 @@ export async function auditConfig(specs: ServerSpec[]): Promise<AuditResult> {
     ),
   );
   const live = done.filter((d): d is InspectResult & { toolList: Tool[] } => "toolList" in d);
+  for (const d of live) {
+    const refs = crossServerReferences(d, live);
+    if (!refs.length) continue;
+    d.findings.push(...refs);
+    d.verdict = judge(d.findings, d.changes);
+  }
   const flow = toxicFlow(live.map((d) => ({ server: d.server, tools: d.toolList })));
   const verdicts = live.map((d) => d.verdict);
   const verdict: Verdict = verdicts.includes("risky") ? "risky" : verdicts.includes("caution") || flow ? "caution" : "healthy";
